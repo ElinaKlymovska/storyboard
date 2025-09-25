@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import replicate
+from notion_client import Client
 
 
 CYRILLIC_S_LOWER = "с"
@@ -304,6 +305,171 @@ def save_analysis_to_file(analysis: str, output_path: Path) -> None:
         f.write(analysis)
 
 
+def upload_image_to_notion(notion: Client, image_path: Path) -> str:
+    """Завантажує зображення в Notion та повертає URL."""
+    try:
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+        
+        # Конвертуємо в base64
+        image_b64 = base64.b64encode(image_data).decode('utf-8')
+        
+        # Створюємо data URL
+        data_url = f"data:image/png;base64,{image_b64}"
+        
+        # Завантажуємо в Notion
+        response = notion.files.upload(
+            file=data_url,
+            name=image_path.name
+        )
+        
+        return response["url"]
+    except Exception as exc:
+        print(f"⚠️ Помилка завантаження зображення в Notion: {exc}", file=sys.stderr)
+        return ""
+
+
+def create_notion_storyboard(
+    notion: Client,
+    parent_page_id: str,
+    video_name: str,
+    screenshots: List[Path],
+    analyses: List[Path],
+    timepoints: List[TimePoint]
+) -> str:
+    """Створює Notion сторінку з storyboard."""
+    try:
+        # Створюємо головну сторінку storyboard
+        page_title = f"Storyboard: {video_name}"
+        
+        page = notion.pages.create(
+            parent={"page_id": parent_page_id},
+            properties={
+                "title": {
+                    "title": [{"text": {"content": page_title}}]
+                }
+            }
+        )
+        
+        page_id = page["id"]
+        
+        # Додаємо опис
+        notion.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": f"Автоматично створений storyboard для відео {video_name}\n"
+                                             f"Кількість кадрів: {len(screenshots)}\n"
+                                             f"Створено: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        
+        # Додаємо кожен кадр
+        for i, (screenshot, analysis, tp) in enumerate(zip(screenshots, analyses, timepoints), 1):
+            # Завантажуємо зображення
+            image_url = upload_image_to_notion(notion, screenshot)
+            
+            if not image_url:
+                continue
+            
+            # Читаємо аналіз
+            analysis_text = ""
+            if analysis.exists():
+                with open(analysis, 'r', encoding='utf-8') as f:
+                    analysis_text = f.read().strip()
+            
+            # Створюємо блок для кадру
+            frame_blocks = [
+                {
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": f"Кадр {i} - {format_timestamp(tp.seconds, precision='ms')}"
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "object": "block",
+                    "type": "image",
+                    "image": {
+                        "type": "external",
+                        "external": {"url": image_url}
+                    }
+                }
+            ]
+            
+            # Додаємо аналіз якщо є
+            if analysis_text:
+                frame_blocks.append({
+                    "object": "block",
+                    "type": "callout",
+                    "callout": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": analysis_text}
+                            }
+                        ],
+                        "icon": {"emoji": "🤖"}
+                    }
+                })
+            
+            # Додаємо метадані
+            frame_blocks.append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": f"Час: {format_timestamp(tp.seconds, precision='ms')} | "
+                                         f"Кадр: #{tp.frame_index} | "
+                                         f"Індекс: {tp.index}"
+                            }
+                        }
+                    ]
+                }
+            })
+            
+            # Додаємо розділювач
+            frame_blocks.append({
+                "object": "block",
+                "type": "divider",
+                "divider": {}
+            })
+            
+            # Додаємо блоки до сторінки
+            notion.blocks.children.append(
+                block_id=page_id,
+                children=frame_blocks
+            )
+        
+        return page_id
+        
+    except Exception as exc:
+        print(f"⚠️ Помилка створення Notion сторінки: {exc}", file=sys.stderr)
+        return ""
+
+
 def estimate_total_frames(duration: float, interval: float) -> int:
     if interval <= 0:
         return 0
@@ -387,6 +553,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default="Опиши коротко що відбувається на цьому зображенні",
         help="Промпт для аналізу зображень (дефолт: 'Опиши коротко що відбувається на цьому зображенні')",
+    )
+    parser.add_argument(
+        "--notion",
+        type=str,
+        default=None,
+        help="Створити Notion сторінку з storyboard (вказати ID батьківської сторінки)",
     )
     return parser
 
@@ -483,6 +655,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         actual_precision = "ms" if interval_seconds < 1.0 else "sec"
 
     image_paths: List[Path] = []
+    analysis_paths: List[Path] = []
     duplicates = 0
     previous_frame_idx = None
 
@@ -492,6 +665,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("⚠️ Для аналізу зображень потрібен REPLICATE_API_TOKEN в змінних середовища", file=sys.stderr)
             print("   Встановіть: export REPLICATE_API_TOKEN=your_token_here", file=sys.stderr)
             args.analyze = False
+
+    # Перевіряємо наявність Notion API токена
+    notion = None
+    if args.notion:
+        if not os.getenv("NOTION_API_TOKEN"):
+            print("⚠️ Для Notion інтеграції потрібен NOTION_API_TOKEN в змінних середовища", file=sys.stderr)
+            print("   Встановіть: export NOTION_API_TOKEN=your_token_here", file=sys.stderr)
+            args.notion = None
+        else:
+            notion = Client(auth=os.getenv("NOTION_API_TOKEN"))
 
     for tp in timepoints:
         if previous_frame_idx is not None and tp.frame_index == previous_frame_idx:
@@ -517,6 +700,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         image_paths.append(output_path)
 
         # Аналіз зображення якщо увімкнено
+        analysis_path = None
         if args.analyze:
             print(f"🔍 Аналізую кадр {tp.index}/{len(timepoints)}...", end=" ", flush=True)
             analysis = analyze_image_with_replicate(output_path, args.analysis_prompt)
@@ -524,6 +708,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             analysis_path = output_dir / analysis_filename
             save_analysis_to_file(analysis, analysis_path)
             print(f"✅ {analysis[:50]}...")
+        
+        analysis_paths.append(analysis_path or Path())
 
     cap.release()
 
@@ -534,6 +720,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"PDF збережено: {pdf_path}")
         except Exception as exc:  # pylint: disable=broad-except
             print(f"⚠️ Не вдалося створити PDF: {exc}", file=sys.stderr)
+
+    # Створюємо Notion сторінку якщо увімкнено
+    if args.notion and notion:
+        print("📝 Створюю Notion сторінку...", end=" ", flush=True)
+        notion_page_id = create_notion_storyboard(
+            notion, 
+            args.notion, 
+            video_path.stem, 
+            image_paths, 
+            analysis_paths, 
+            timepoints
+        )
+        if notion_page_id:
+            print(f"✅ Notion сторінка створена: https://notion.so/{notion_page_id.replace('-', '')}")
+        else:
+            print("❌ Помилка створення Notion сторінки")
 
     print(f"Готово. Збережено {len(image_paths)} файлів у '{output_dir}'.")
     if duplicates:
