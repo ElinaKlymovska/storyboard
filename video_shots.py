@@ -405,7 +405,7 @@ def create_html_storyboard(
             with open(analysis, 'r', encoding='utf-8') as f:
                 analysis_text = f.read().strip()
         
-        # Копіюємо зображення в ту ж папку, що й HTML
+        # Використовуємо відносний шлях до зображення в output папці
         screenshot_name = f"frame_{i:03d}_{screenshot.name}"
         screenshot_dest = output_path.parent / screenshot_name
         import shutil
@@ -697,7 +697,9 @@ def resolve_output_dir(base_dir: Path, video_path: Path, custom_outdir: str | No
         out_dir = Path(custom_outdir)
     else:
         base_name = video_path.stem
-        out_dir = base_dir / f"{base_name}_shots"
+        # Створюємо папку з timestamp для кожної сесії
+        timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_dir = base_dir / f"{base_name}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
@@ -851,7 +853,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     cap.release()
 
     if args.pdf:
-        pdf_path = Path(args.pdf)
+        if args.pdf.startswith('/') or ':' in args.pdf:
+            # Абсолютний шлях
+            pdf_path = Path(args.pdf)
+        else:
+            # Відносний шлях - зберігаємо в output папці
+            pdf_path = output_dir / args.pdf
         try:
             combine_to_pdf(image_paths, pdf_path)
             print(f"PDF збережено: {pdf_path}")
@@ -861,7 +868,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Створюємо HTML файл якщо увімкнено
     if args.html:
         print("🌐 Створюю HTML storyboard...", end=" ", flush=True)
-        html_path = Path(args.html)
+        if args.html.startswith('/') or ':' in args.html:
+            # Абсолютний шлях
+            html_path = Path(args.html)
+        else:
+            # Відносний шлях - зберігаємо в output папці
+            html_path = output_dir / args.html
         create_html_storyboard(
             video_path.stem,
             image_paths,
