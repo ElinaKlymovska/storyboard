@@ -405,6 +405,78 @@ def combine_to_pdf(image_paths: Sequence[Path], analyses: List[Path], timepoints
         head.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=tail)
 
 
+def parse_audio_transcript(audio_file_path: Path) -> dict:
+    """Парсить аудіо транскрипт та повертає словник з таймкодами."""
+    try:
+        if not audio_file_path.exists():
+            return {}
+        
+        with open(audio_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Парсимо таймкоди та текст
+        import re
+        pattern = r'\[(\d{2}:\d{2}:\d{2}:\d{2}) - (\d{2}:\d{2}:\d{2}:\d{2})\]\s*(.+)'
+        matches = re.findall(pattern, content)
+        
+        transcript_data = {}
+        for start_time, end_time, text in matches:
+            # Конвертуємо таймкод в секунди
+            start_seconds = parse_timecode_to_seconds(start_time)
+            end_seconds = parse_timecode_to_seconds(end_time)
+            
+            # Зберігаємо для кожного кадру
+            transcript_data[start_seconds] = {
+                'start': start_time,
+                'end': end_time,
+                'text': text.strip()
+            }
+        
+        return transcript_data
+        
+    except Exception as exc:
+        print(f"⚠️ Помилка парсингу аудіо файлу: {exc}", file=sys.stderr)
+        return {}
+
+
+def parse_timecode_to_seconds(timecode: str) -> float:
+    """Конвертує таймкод HH:MM:SS:FF в секунди."""
+    try:
+        parts = timecode.split(':')
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2])
+        frames = int(parts[3])
+        
+        # Припускаємо 30 FPS
+        total_seconds = hours * 3600 + minutes * 60 + seconds + frames / 30.0
+        return total_seconds
+    except:
+        return 0.0
+
+
+def get_vo_for_timestamp(transcript_data: dict, timestamp: float) -> str:
+    """Знаходить VO/Sound для заданого таймкоду."""
+    if not transcript_data:
+        return ""
+    
+    # Шукаємо найближчий таймкод
+    closest_time = None
+    min_diff = float('inf')
+    
+    for time_key in transcript_data.keys():
+        diff = abs(time_key - timestamp)
+        if diff < min_diff:
+            min_diff = diff
+            closest_time = time_key
+    
+    # Якщо знайшли близький таймкод (в межах 2 секунд)
+    if closest_time is not None and min_diff <= 2.0:
+        return transcript_data[closest_time]['text']
+    
+    return ""
+
+
 def create_structured_analysis_from_text(text: str) -> dict:
     """Створює структурований аналіз з текстового опису."""
     import re
@@ -792,7 +864,8 @@ def create_editing_table(
     screenshots: List[Path],
     analyses: List[Path],
     timepoints: List[TimePoint],
-    output_path: Path
+    output_path: Path,
+    transcript_data: dict = None
 ) -> None:
     """Створює таблицю для монтажу на основі аналізу кадрів."""
     import json
@@ -833,16 +906,23 @@ Characters: {characters}. Objects: {objects}.
 Background: {background}. Lighting: {lighting}.
 Maintain character identity and visual consistency."""
         
-        # Визначаємо VO/Sound на основі аналізу
+        # Визначаємо VO/Sound
         vo_sound = ""
-        emotions = analysis_data.get('production_notes', {}).get('emotions', [])
-        if emotions:
-            if 'happy' in emotions or 'excited' in emotions:
-                vo_sound = "Upbeat dialogue or music"
-            elif 'serious' in emotions or 'focused' in emotions:
-                vo_sound = "Professional narration"
-            elif 'dramatic' in emotions:
-                vo_sound = "Dramatic music or sound effects"
+        
+        # Спочатку пробуємо знайти в транскрипті
+        if transcript_data:
+            vo_sound = get_vo_for_timestamp(transcript_data, tp.seconds)
+        
+        # Якщо не знайшли в транскрипті, використовуємо аналіз
+        if not vo_sound:
+            emotions = analysis_data.get('production_notes', {}).get('emotions', [])
+            if emotions:
+                if 'happy' in emotions or 'excited' in emotions:
+                    vo_sound = "Upbeat dialogue or music"
+                elif 'serious' in emotions or 'focused' in emotions:
+                    vo_sound = "Professional narration"
+                elif 'dramatic' in emotions:
+                    vo_sound = "Dramatic music or sound effects"
         
         editing_data.append({
             'step': i,
@@ -1214,6 +1294,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Створити таблицю для монтажу (вказати шлях до файлу)",
     )
+    parser.add_argument(
+        "--audio-transcript",
+        type=str,
+        default=None,
+        help="Шлях до аудіо транскрипту для VO/Sound",
+    )
     return parser
 
 
@@ -1415,6 +1501,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(f"✅ HTML storyboard збережено: {html_path}")
 
+    # Парсимо аудіо транскрипт якщо вказано
+    transcript_data = {}
+    if args.audio_transcript:
+        print("🎵 Парсую аудіо транскрипт...", end=" ", flush=True)
+        transcript_data = parse_audio_transcript(Path(args.audio_transcript))
+        print(f"✅ Знайдено {len(transcript_data)} сегментів")
+
     # Створюємо таблицю монтажу якщо увімкнено
     if args.editing_table:
         print("📊 Створюю таблицю монтажу...", end=" ", flush=True)
@@ -1429,7 +1522,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             image_paths,
             analysis_paths,
             timepoints,
-            table_path
+            table_path,
+            transcript_data
         )
         print(f"✅ Таблиця монтажу збережена: {table_path}")
 
