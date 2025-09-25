@@ -308,25 +308,144 @@ def save_analysis_to_file(analysis: str, output_path: Path) -> None:
 def upload_image_to_notion(notion: Client, image_path: Path) -> str:
     """Завантажує зображення в Notion та повертає URL."""
     try:
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
-        
-        # Конвертуємо в base64
-        image_b64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # Створюємо data URL
-        data_url = f"data:image/png;base64,{image_b64}"
-        
-        # Завантажуємо в Notion
-        response = notion.files.upload(
-            file=data_url,
-            name=image_path.name
-        )
-        
-        return response["url"]
+        # Для теперішнього часу повертаємо placeholder
+        # В майбутньому можна інтегрувати з зовнішнім хостингом зображень
+        return f"📷 {image_path.name} (зображення збережено локально)"
     except Exception as exc:
         print(f"⚠️ Помилка завантаження зображення в Notion: {exc}", file=sys.stderr)
         return ""
+
+
+def create_html_storyboard(
+    video_name: str,
+    screenshots: List[Path],
+    analyses: List[Path],
+    timepoints: List[TimePoint],
+    output_path: Path
+) -> None:
+    """Створює HTML файл з storyboard."""
+    html_content = f"""
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storyboard: {video_name}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }}
+        .header {{
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }}
+        .frame {{
+            background: white;
+            margin-bottom: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .frame-header {{
+            background: #2563eb;
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            font-size: 18px;
+        }}
+        .frame-content {{
+            padding: 20px;
+        }}
+        .screenshot {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }}
+        .analysis {{
+            background: #f0f9ff;
+            border-left: 4px solid #0ea5e9;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }}
+        .metadata {{
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 10px;
+        }}
+        .divider {{
+            height: 1px;
+            background: #e5e7eb;
+            margin: 20px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎬 Storyboard: {video_name}</h1>
+        <p>Автоматично створений storyboard</p>
+        <p>Кількість кадрів: {len(screenshots)} | Створено: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    </div>
+"""
+
+    for i, (screenshot, analysis, tp) in enumerate(zip(screenshots, analyses, timepoints), 1):
+        time_label = format_timestamp(tp.seconds, precision='ms')
+        
+        # Читаємо аналіз
+        analysis_text = ""
+        if analysis and analysis.exists():
+            with open(analysis, 'r', encoding='utf-8') as f:
+                analysis_text = f.read().strip()
+        
+        # Копіюємо зображення в ту ж папку, що й HTML
+        screenshot_name = f"frame_{i:03d}_{screenshot.name}"
+        screenshot_dest = output_path.parent / screenshot_name
+        import shutil
+        shutil.copy2(screenshot, screenshot_dest)
+        
+        html_content += f"""
+    <div class="frame">
+        <div class="frame-header">
+            Кадр {i} - {time_label}
+        </div>
+        <div class="frame-content">
+            <img src="{screenshot_name}" alt="Кадр {i}" class="screenshot">
+"""
+        
+        if analysis_text:
+            html_content += f"""
+            <div class="analysis">
+                <strong>🤖 AI Аналіз:</strong><br>
+                {analysis_text}
+            </div>
+"""
+        
+        html_content += f"""
+            <div class="metadata">
+                Час: {time_label} | Кадр: #{tp.frame_index} | Індекс: {tp.index}
+            </div>
+        </div>
+    </div>
+"""
+        
+        if i < len(screenshots):
+            html_content += '<div class="divider"></div>'
+
+    html_content += """
+</body>
+</html>
+"""
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
 
 
 def create_notion_storyboard(
@@ -408,10 +527,14 @@ def create_notion_storyboard(
                 },
                 {
                     "object": "block",
-                    "type": "image",
-                    "image": {
-                        "type": "external",
-                        "external": {"url": image_url}
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": image_url}
+                            }
+                        ]
                     }
                 }
             ]
@@ -560,6 +683,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Створити Notion сторінку з storyboard (вказати ID батьківської сторінки)",
     )
+    parser.add_argument(
+        "--html",
+        type=str,
+        default=None,
+        help="Створити HTML файл з storyboard (вказати шлях до файлу)",
+    )
     return parser
 
 
@@ -669,12 +798,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Перевіряємо наявність Notion API токена
     notion = None
     if args.notion:
-        if not os.getenv("NOTION_API_TOKEN"):
+        notion_token = os.getenv("NOTION_API_TOKEN")
+        if not notion_token:
             print("⚠️ Для Notion інтеграції потрібен NOTION_API_TOKEN в змінних середовища", file=sys.stderr)
             print("   Встановіть: export NOTION_API_TOKEN=your_token_here", file=sys.stderr)
             args.notion = None
         else:
-            notion = Client(auth=os.getenv("NOTION_API_TOKEN"))
+            try:
+                notion = Client(auth=notion_token)
+                # Тестуємо підключення
+                notion.users.me()
+                print("✅ Notion API підключено успішно")
+            except Exception as exc:
+                print(f"⚠️ Помилка підключення до Notion: {exc}", file=sys.stderr)
+                args.notion = None
 
     for tp in timepoints:
         if previous_frame_idx is not None and tp.frame_index == previous_frame_idx:
@@ -720,6 +857,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"PDF збережено: {pdf_path}")
         except Exception as exc:  # pylint: disable=broad-except
             print(f"⚠️ Не вдалося створити PDF: {exc}", file=sys.stderr)
+
+    # Створюємо HTML файл якщо увімкнено
+    if args.html:
+        print("🌐 Створюю HTML storyboard...", end=" ", flush=True)
+        html_path = Path(args.html)
+        create_html_storyboard(
+            video_path.stem,
+            image_paths,
+            analysis_paths,
+            timepoints,
+            html_path
+        )
+        print(f"✅ HTML storyboard збережено: {html_path}")
 
     # Створюємо Notion сторінку якщо увімкнено
     if args.notion and notion:
