@@ -265,8 +265,113 @@ def combine_to_pdf(image_paths: Sequence[Path], pdf_path: Path) -> None:
     head.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=tail)
 
 
-def analyze_image_with_replicate(image_path: Path, prompt: str = "Опиши коротко що відбувається на цьому зображенні") -> str:
-    """Аналізує зображення за допомогою Replicate vision model."""
+def create_structured_analysis_from_text(text: str) -> dict:
+    """Створює структурований аналіз з текстового опису."""
+    import re
+    
+    # Визначаємо тип кадру
+    shot_type = "close-up"
+    if "wide" in text.lower() or "full" in text.lower():
+        shot_type = "wide"
+    elif "medium" in text.lower():
+        shot_type = "medium"
+    
+    # Визначаємо емоції
+    emotions = []
+    if any(word in text.lower() for word in ["happy", "smiling", "joy", "excited"]):
+        emotions.append("happy")
+    if any(word in text.lower() for word in ["serious", "focused", "concentrated"]):
+        emotions.append("serious")
+    if any(word in text.lower() for word in ["relaxed", "calm", "peaceful"]):
+        emotions.append("relaxed")
+    if any(word in text.lower() for word in ["dramatic", "intense", "dramatic"]):
+        emotions.append("dramatic")
+    
+    # Визначаємо рівень дії
+    action_level = "static"
+    if any(word in text.lower() for word in ["moving", "action", "motion", "dynamic"]):
+        action_level = "medium"
+    if any(word in text.lower() for word in ["fast", "quick", "rapid", "intense"]):
+        action_level = "high"
+    
+    # Визначаємо оцінку придатності
+    score = 5
+    if "close-up" in text.lower() and "face" in text.lower():
+        score = 7
+    if "background" in text.lower() and "black" in text.lower():
+        score += 1
+    if emotions:
+        score += 1
+    
+    # Визначаємо персонажів
+    characters = ["person"]
+    if "woman" in text.lower():
+        characters = ["woman"]
+    elif "man" in text.lower():
+        characters = ["man"]
+    
+    return {
+        "scene_description": text[:200] + "..." if len(text) > 200 else text,
+        "visual_elements": {
+            "characters": characters,
+            "objects": ["face", "hair"] if "hair" in text.lower() else ["face"],
+            "background": "black background" if "black" in text.lower() else "background",
+            "lighting": "cinematic lighting" if "lighting" in text.lower() else "natural lighting"
+        },
+        "composition": {
+            "shot_type": shot_type,
+            "camera_angle": "eye-level",
+            "framing": "face-focused framing"
+        },
+        "storyboard_suitability": {
+            "score": min(score, 10),
+            "reasoning": f"Good for storyboard: {shot_type} shot with clear character focus",
+            "key_moments": ["character expression", "visual focus"],
+            "transition_potential": "good" if score >= 6 else "fair"
+        },
+        "production_notes": {
+            "makeup_visible": "makeup" in text.lower(),
+            "emotions": emotions if emotions else ["neutral"],
+            "action_level": action_level,
+            "technical_quality": "good"
+        }
+    }
+
+
+def analyze_image_with_replicate(image_path: Path, prompt: str = None) -> dict:
+    """Аналізує зображення за допомогою Replicate vision model та повертає структурований результат."""
+    if prompt is None:
+        prompt = """Analyze this video frame for storyboard creation. Provide ONLY a valid JSON response with this exact structure:
+
+{
+  "scene_description": "Brief description of what's happening",
+  "visual_elements": {
+    "characters": ["person", "character"],
+    "objects": ["object1", "object2"],
+    "background": "background description",
+    "lighting": "lighting description"
+  },
+  "composition": {
+    "shot_type": "close-up",
+    "camera_angle": "eye-level",
+    "framing": "framing description"
+  },
+  "storyboard_suitability": {
+    "score": 7,
+    "reasoning": "explanation",
+    "key_moments": ["moment1", "moment2"],
+    "transition_potential": "good"
+  },
+  "production_notes": {
+    "makeup_visible": true,
+    "emotions": ["emotion1", "emotion2"],
+    "action_level": "static",
+    "technical_quality": "good"
+  }
+}
+
+Respond with ONLY the JSON, no other text."""
+    
     try:
         # Читаємо зображення та конвертуємо в base64
         with open(image_path, "rb") as image_file:
@@ -275,14 +380,14 @@ def analyze_image_with_replicate(image_path: Path, prompt: str = "Опиши к�
         # Створюємо data URL
         image_url = f"data:image/png;base64,{image_data}"
         
-        # Використовуємо Replicate API
+        # Використовуємо Replicate API з новою моделлю
         output = replicate.run(
-            "yorickvp/llava-13b:01359160a4cff57c6b7d4dc625d0019d390c7c46f553714069f114b392f4a726",
+            "yorickvp/llava-13b:80537f9eead1a5bfa72d5ac6ea6414379be41d4d4f6679fd776e9535d1eb58bb",
             input={
                 "image": image_url,
                 "prompt": prompt,
-                "max_tokens": 150,
-                "temperature": 0.7
+                "max_tokens": 500,
+                "temperature": 0.3
             }
         )
         
@@ -292,17 +397,38 @@ def analyze_image_with_replicate(image_path: Path, prompt: str = "Опиши к�
         else:
             result = str(output)
         
-        return result.strip()
+        # Спробуємо парсити JSON, якщо не вдається - створимо структурований аналіз
+        try:
+            import json
+            import re
+            
+            # Спробуємо знайти JSON у відповіді
+            json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                parsed_result = json.loads(json_str)
+                return parsed_result
+            else:
+                # Якщо JSON не знайдено, створимо структурований аналіз з тексту
+                return create_structured_analysis_from_text(result.strip())
+        except json.JSONDecodeError:
+            return create_structured_analysis_from_text(result.strip())
+            
     except Exception as exc:
-        return f"Помилка аналізу: {exc}"
+        return {
+            "error": f"Analysis failed: {exc}",
+            "scene_description": "Analysis unavailable",
+            "storyboard_suitability": {"score": 0, "reasoning": "Analysis failed"}
+        }
 
 
-def save_analysis_to_file(analysis: str, output_path: Path) -> None:
-    """Зберігає аналіз у текстовому файлі."""
+def save_analysis_to_file(analysis: dict, output_path: Path) -> None:
+    """Зберігає структурований аналіз у JSON файлі."""
     # Створюємо директорію якщо не існує
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    import json
     with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(analysis)
+        json.dump(analysis, f, indent=2, ensure_ascii=False)
 
 
 def upload_image_to_notion(notion: Client, image_path: Path) -> str:
@@ -326,7 +452,7 @@ def create_html_storyboard(
     """Створює HTML файл з storyboard."""
     html_content = f"""
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -334,7 +460,7 @@ def create_html_storyboard(
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
             background: #f8f9fa;
@@ -359,9 +485,21 @@ def create_html_storyboard(
             padding: 15px 20px;
             font-weight: 600;
             font-size: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .score-badge {{
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 14px;
         }}
         .frame-content {{
             padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
         }}
         .screenshot {{
             max-width: 100%;
@@ -376,6 +514,14 @@ def create_html_storyboard(
             margin: 15px 0;
             border-radius: 0 8px 8px 0;
         }}
+        .analysis-section {{
+            margin-bottom: 15px;
+        }}
+        .analysis-title {{
+            font-weight: 600;
+            color: #1e40af;
+            margin-bottom: 5px;
+        }}
         .metadata {{
             color: #6b7280;
             font-size: 14px;
@@ -386,24 +532,33 @@ def create_html_storyboard(
             background: #e5e7eb;
             margin: 20px 0;
         }}
+        .score-high {{ color: #10b981; }}
+        .score-medium {{ color: #f59e0b; }}
+        .score-low {{ color: #ef4444; }}
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🎬 Storyboard: {video_name}</h1>
-        <p>Автоматично створений storyboard</p>
-        <p>Кількість кадрів: {len(screenshots)} | Створено: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p>AI-Generated Storyboard Analysis</p>
+        <p>Frames: {len(screenshots)} | Created: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     </div>
 """
 
     for i, (screenshot, analysis, tp) in enumerate(zip(screenshots, analyses, timepoints), 1):
         time_label = format_timestamp(tp.seconds, precision='ms')
         
-        # Читаємо аналіз
-        analysis_text = ""
+        # Читаємо структурований аналіз
+        analysis_data = {}
+        score = 5
         if analysis and analysis.exists():
-            with open(analysis, 'r', encoding='utf-8') as f:
-                analysis_text = f.read().strip()
+            try:
+                import json
+                with open(analysis, 'r', encoding='utf-8') as f:
+                    analysis_data = json.load(f)
+                score = analysis_data.get('storyboard_suitability', {}).get('score', 5)
+            except:
+                analysis_data = {"scene_description": "Analysis unavailable"}
         
         # Використовуємо відносний шлях до зображення в output папці
         screenshot_name = f"frame_{i:03d}_{screenshot.name}"
@@ -411,26 +566,70 @@ def create_html_storyboard(
         import shutil
         shutil.copy2(screenshot, screenshot_dest)
         
+        # Визначаємо клас для оцінки
+        score_class = "score-high" if score >= 7 else "score-medium" if score >= 4 else "score-low"
+        
         html_content += f"""
     <div class="frame">
         <div class="frame-header">
-            Кадр {i} - {time_label}
+            Frame {i} - {time_label}
+            <span class="score-badge {score_class}">Score: {score}/10</span>
         </div>
         <div class="frame-content">
-            <img src="{screenshot_name}" alt="Кадр {i}" class="screenshot">
-"""
-        
-        if analysis_text:
-            html_content += f"""
-            <div class="analysis">
-                <strong>🤖 AI Аналіз:</strong><br>
-                {analysis_text}
+            <div>
+                <img src="{screenshot_name}" alt="Frame {i}" class="screenshot">
+                <div class="metadata">
+                    Time: {time_label} | Frame: #{tp.frame_index} | Index: {tp.index}
+                </div>
             </div>
+            <div class="analysis">
 """
         
-        html_content += f"""
-            <div class="metadata">
-                Час: {time_label} | Кадр: #{tp.frame_index} | Індекс: {tp.index}
+        # Додаємо структурований аналіз
+        if analysis_data:
+            html_content += f"""
+                <div class="analysis-section">
+                    <div class="analysis-title">📝 Scene Description</div>
+                    <div>{analysis_data.get('scene_description', 'N/A')}</div>
+                </div>
+"""
+            
+            if 'visual_elements' in analysis_data:
+                ve = analysis_data['visual_elements']
+                html_content += f"""
+                <div class="analysis-section">
+                    <div class="analysis-title">👁️ Visual Elements</div>
+                    <div><strong>Characters:</strong> {', '.join(ve.get('characters', ['N/A']))}</div>
+                    <div><strong>Objects:</strong> {', '.join(ve.get('objects', ['N/A']))}</div>
+                    <div><strong>Background:</strong> {ve.get('background', 'N/A')}</div>
+                    <div><strong>Lighting:</strong> {ve.get('lighting', 'N/A')}</div>
+                </div>
+"""
+            
+            if 'composition' in analysis_data:
+                comp = analysis_data['composition']
+                html_content += f"""
+                <div class="analysis-section">
+                    <div class="analysis-title">🎬 Composition</div>
+                    <div><strong>Shot Type:</strong> {comp.get('shot_type', 'N/A')}</div>
+                    <div><strong>Camera Angle:</strong> {comp.get('camera_angle', 'N/A')}</div>
+                    <div><strong>Framing:</strong> {comp.get('framing', 'N/A')}</div>
+                </div>
+"""
+            
+            if 'storyboard_suitability' in analysis_data:
+                ss = analysis_data['storyboard_suitability']
+                html_content += f"""
+                <div class="analysis-section">
+                    <div class="analysis-title">⭐ Storyboard Suitability</div>
+                    <div><strong>Score:</strong> {ss.get('score', 'N/A')}/10</div>
+                    <div><strong>Reasoning:</strong> {ss.get('reasoning', 'N/A')}</div>
+                    <div><strong>Key Moments:</strong> {', '.join(ss.get('key_moments', ['N/A']))}</div>
+                    <div><strong>Transition Potential:</strong> {ss.get('transition_potential', 'N/A')}</div>
+                </div>
+"""
+        
+        html_content += """
             </div>
         </div>
     </div>
@@ -440,6 +639,186 @@ def create_html_storyboard(
             html_content += '<div class="divider"></div>'
 
     html_content += """
+</body>
+</html>
+"""
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+
+def create_editing_table(
+    video_name: str,
+    screenshots: List[Path],
+    analyses: List[Path],
+    timepoints: List[TimePoint],
+    output_path: Path
+) -> None:
+    """Створює таблицю для монтажу на основі аналізу кадрів."""
+    import json
+    
+    # Збираємо дані з аналізів
+    editing_data = []
+    
+    for i, (screenshot, analysis, tp) in enumerate(zip(screenshots, analyses, timepoints), 1):
+        time_label = format_timestamp(tp.seconds, precision='ms')
+        
+        # Читаємо аналіз
+        analysis_data = {}
+        if analysis and analysis.exists():
+            try:
+                with open(analysis, 'r', encoding='utf-8') as f:
+                    analysis_data = json.load(f)
+            except:
+                analysis_data = {"scene_description": "Analysis unavailable"}
+        
+        # Визначаємо тип контенту на основі аналізу
+        content_type = "Image"
+        if analysis_data.get('production_notes', {}).get('action_level') in ['medium', 'high']:
+            content_type = "Video"
+        elif analysis_data.get('storyboard_suitability', {}).get('transition_potential', '').lower() in ['high', 'excellent']:
+            content_type = "Montage"
+        
+        # Генеруємо опис для генеративних моделей
+        scene_desc = analysis_data.get('scene_description', 'Scene analysis unavailable')
+        visual_elements = analysis_data.get('visual_elements', {})
+        characters = ', '.join(visual_elements.get('characters', ['character']))
+        objects = ', '.join(visual_elements.get('objects', ['objects']))
+        background = visual_elements.get('background', 'background')
+        lighting = visual_elements.get('lighting', 'lighting')
+        
+        # Створюємо детальний опис для генерації
+        generation_prompt = f"""Generate {content_type.lower()} content: {scene_desc}. 
+Characters: {characters}. Objects: {objects}. 
+Background: {background}. Lighting: {lighting}.
+Maintain character identity and visual consistency."""
+        
+        # Визначаємо VO/Sound на основі аналізу
+        vo_sound = ""
+        emotions = analysis_data.get('production_notes', {}).get('emotions', [])
+        if emotions:
+            if 'happy' in emotions or 'excited' in emotions:
+                vo_sound = "Upbeat dialogue or music"
+            elif 'serious' in emotions or 'focused' in emotions:
+                vo_sound = "Professional narration"
+            elif 'dramatic' in emotions:
+                vo_sound = "Dramatic music or sound effects"
+        
+        editing_data.append({
+            'step': i,
+            'timestamp': time_label,
+            'type': content_type,
+            'description': generation_prompt,
+            'vo_sound': vo_sound,
+            'score': analysis_data.get('storyboard_suitability', {}).get('score', 5),
+            'key_moments': analysis_data.get('storyboard_suitability', {}).get('key_moments', [])
+        })
+    
+    # Створюємо HTML таблицю
+    html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editing Table: {video_name}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }}
+        .header {{
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }}
+        .table-container {{
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        th {{
+            background: #2563eb;
+            color: white;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+        }}
+        td {{
+            padding: 15px 10px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }}
+        tr:nth-child(even) {{
+            background: #f9fafb;
+        }}
+        .step {{
+            font-weight: 600;
+            color: #2563eb;
+        }}
+        .type-image {{ color: #10b981; }}
+        .type-video {{ color: #f59e0b; }}
+        .type-montage {{ color: #8b5cf6; }}
+        .description {{
+            max-width: 400px;
+            word-wrap: break-word;
+        }}
+        .score-high {{ color: #10b981; font-weight: 600; }}
+        .score-medium {{ color: #f59e0b; font-weight: 600; }}
+        .score-low {{ color: #ef4444; font-weight: 600; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎬 Editing Table: {video_name}</h1>
+        <p>AI-Generated Editing Guide for Generative Models</p>
+        <p>Total Steps: {len(editing_data)} | Created: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    </div>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Step</th>
+                    <th>Timestamp</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>VO / Sound</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+    
+    for item in editing_data:
+        score_class = "score-high" if item['score'] >= 7 else "score-medium" if item['score'] >= 4 else "score-low"
+        type_class = f"type-{item['type'].lower()}"
+        
+        html_content += f"""
+                <tr>
+                    <td class="step">{item['step']}</td>
+                    <td>{item['timestamp']}</td>
+                    <td class="{type_class}">{item['type']}</td>
+                    <td class="description">{item['description']}</td>
+                    <td>{item['vo_sound']}</td>
+                    <td class="{score_class}">{item['score']}/10</td>
+                </tr>
+"""
+    
+    html_content += """
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>
 """
@@ -689,6 +1068,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Створити HTML файл з storyboard (вказати шлях до файлу)",
     )
+    parser.add_argument(
+        "--editing-table",
+        type=str,
+        default=None,
+        help="Створити таблицю для монтажу (вказати шлях до файлу)",
+    )
     return parser
 
 
@@ -842,11 +1227,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         analysis_path = None
         if args.analyze:
             print(f"🔍 Аналізую кадр {tp.index}/{len(timepoints)}...", end=" ", flush=True)
-            analysis = analyze_image_with_replicate(output_path, args.analysis_prompt)
-            analysis_filename = f"{args.prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}_analysis.txt"
+            analysis_data = analyze_image_with_replicate(output_path, args.analysis_prompt)
+            analysis_filename = f"{args.prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}_analysis.json"
             analysis_path = output_dir / analysis_filename
-            save_analysis_to_file(analysis, analysis_path)
-            print(f"✅ {analysis[:50]}...")
+            save_analysis_to_file(analysis_data, analysis_path)
+            scene_desc = analysis_data.get('scene_description', 'Analysis unavailable')
+            print(f"✅ {scene_desc[:50]}...")
         
         analysis_paths.append(analysis_path or Path())
 
@@ -882,6 +1268,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             html_path
         )
         print(f"✅ HTML storyboard збережено: {html_path}")
+
+    # Створюємо таблицю монтажу якщо увімкнено
+    if args.editing_table:
+        print("📊 Створюю таблицю монтажу...", end=" ", flush=True)
+        if args.editing_table.startswith('/') or ':' in args.editing_table:
+            # Абсолютний шлях
+            table_path = Path(args.editing_table)
+        else:
+            # Відносний шлях - зберігаємо в output папці
+            table_path = output_dir / args.editing_table
+        create_editing_table(
+            video_path.stem,
+            image_paths,
+            analysis_paths,
+            timepoints,
+            table_path
+        )
+        print(f"✅ Таблиця монтажу збережена: {table_path}")
 
     # Створюємо Notion сторінку якщо увімкнено
     if args.notion and notion:
