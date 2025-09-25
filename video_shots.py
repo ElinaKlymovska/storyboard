@@ -9,10 +9,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
+import base64
+import io
 
 import cv2
 import numpy as np
 from PIL import Image
+import replicate
 
 
 CYRILLIC_S_LOWER = "с"
@@ -261,6 +264,38 @@ def combine_to_pdf(image_paths: Sequence[Path], pdf_path: Path) -> None:
     head.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=tail)
 
 
+def analyze_image_with_replicate(image_path: Path, prompt: str = "Опиши коротко що відбувається на цьому зображенні") -> str:
+    """Аналізує зображення за допомогою Replicate vision model."""
+    try:
+        # Читаємо зображення та конвертуємо в base64
+        with open(image_path, "rb") as image_file:
+            image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # Створюємо data URL
+        image_url = f"data:image/png;base64,{image_data}"
+        
+        # Використовуємо Replicate API
+        output = replicate.run(
+            "yorickvp/llava-13b:01359160a4cff57c6b7d4dc625d0019d390c7c46f553714069f114b392f4a726",
+            input={
+                "image": image_url,
+                "prompt": prompt,
+                "max_tokens": 150,
+                "temperature": 0.7
+            }
+        )
+        
+        return str(output).strip()
+    except Exception as exc:
+        return f"Помилка аналізу: {exc}"
+
+
+def save_analysis_to_file(analysis: str, output_path: Path) -> None:
+    """Зберігає аналіз у текстовому файлі."""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(analysis)
+
+
 def estimate_total_frames(duration: float, interval: float) -> int:
     if interval <= 0:
         return 0
@@ -333,6 +368,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Максимальна кількість скріншотів (для захисту від занадто малого інтервалу)",
+    )
+    parser.add_argument(
+        "--analyze",
+        action="store_true",
+        help="Аналізувати кожен скріншот за допомогою AI vision model",
+    )
+    parser.add_argument(
+        "--analysis-prompt",
+        type=str,
+        default="Опиши коротко що відбувається на цьому зображенні",
+        help="Промпт для аналізу зображень (дефолт: 'Опиши коротко що відбувається на цьому зображенні')",
     )
     return parser
 
@@ -432,6 +478,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     duplicates = 0
     previous_frame_idx = None
 
+    # Перевіряємо наявність Replicate API токена
+    if args.analyze:
+        if not os.getenv("REPLICATE_API_TOKEN"):
+            print("⚠️ Для аналізу зображень потрібен REPLICATE_API_TOKEN в змінних середовища", file=sys.stderr)
+            print("   Встановіть: export REPLICATE_API_TOKEN=your_token_here", file=sys.stderr)
+            args.analyze = False
+
     for tp in timepoints:
         if previous_frame_idx is not None and tp.frame_index == previous_frame_idx:
             duplicates += 1
@@ -446,7 +499,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         frame = apply_rotation(frame, args.rotate)
 
         time_label = format_timestamp(tp.seconds, precision=actual_precision)
-        label_lines = [f"Frame #{tp.frame_index}", f"Time {time_label}"]
+        label_lines = [f"Time {time_label}"]
         framed = render_label_panel(frame, label_lines)
 
         time_tag = format_timestamp_for_name(tp.seconds, precision=actual_precision)
@@ -454,6 +507,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_path = output_dir / filename
         save_frame_image(framed, output_path, args.format)
         image_paths.append(output_path)
+
+        # Аналіз зображення якщо увімкнено
+        if args.analyze:
+            print(f"🔍 Аналізую кадр {tp.index}/{len(timepoints)}...", end=" ", flush=True)
+            analysis = analyze_image_with_replicate(output_path, args.analysis_prompt)
+            analysis_filename = f"{args.prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}_analysis.txt"
+            analysis_path = output_dir / analysis_filename
+            save_analysis_to_file(analysis, analysis_path)
+            print(f"✅ {analysis[:50]}...")
 
     cap.release()
 

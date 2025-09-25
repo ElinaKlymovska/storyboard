@@ -8,7 +8,17 @@ CLI для створення серії скріншотів із відео ч
 pip install -r requirements.txt
 ```
 
-Знадобляться OpenCV, NumPy та Pillow.
+Знадобляться OpenCV, NumPy, Pillow та Replicate.
+
+## Налаштування AI аналізу
+
+Для використання функції `--analyze` потрібен API токен Replicate:
+
+```bash
+export REPLICATE_API_TOKEN=your_token_here
+```
+
+Отримати токен можна на [replicate.com](https://replicate.com/collections/vision-models).
 
 ## Використання
 
@@ -27,11 +37,17 @@ python video_shots.py <video_path> -n <interval>
 - `--pdf <path>` — збір усіх скрінів у один PDF.
 - `--time-precision auto|ms|sec` — формат часу у підписі.
 - `--max-frames <N>` — верхня межа кількості кадрів.
+- `--analyze` — аналізувати кожен скріншот за допомогою AI vision model.
+- `--analysis-prompt <text>` — промпт для аналізу зображень.
 
-Приклад:
+Приклади:
 
 ```
+# Базове використання
 python video_shots.py input.mp4 -n 0.5s --outdir shots --format jpg
+
+# З AI аналізом зображень
+python video_shots.py input.mp4 -n 0.2s --analyze --analysis-prompt "Опиши емоції та дії людей на зображенні"
 ```
 
 ## Логи
