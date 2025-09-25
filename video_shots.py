@@ -225,13 +225,13 @@ def render_label_panel(
     overlay[:, width:] = panel_bg_color
     cv2.addWeighted(overlay, panel_alpha, result, 1 - panel_alpha, 0, result)
 
-    y = int(height * 0.5 - text_height_total / 2) + padding // 2
+    # Розміщуємо текст у верхній частині панелі
+    y = padding + line_height
     x = width + padding
     for line in label_lines:
         (text_width, text_height), baseline = cv2.getTextSize(line, font, font_scale, font_thickness)
-        y += text_height
         cv2.putText(result, line, (x, y), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
-        y += baseline + padding // 2
+        y += line_height + padding // 2
 
     return result
 
@@ -285,13 +285,21 @@ def analyze_image_with_replicate(image_path: Path, prompt: str = "Опиши к�
             }
         )
         
-        return str(output).strip()
+        # Replicate повертає generator, потрібно зібрати результат
+        if hasattr(output, '__iter__') and not isinstance(output, str):
+            result = ''.join(str(item) for item in output)
+        else:
+            result = str(output)
+        
+        return result.strip()
     except Exception as exc:
         return f"Помилка аналізу: {exc}"
 
 
 def save_analysis_to_file(analysis: str, output_path: Path) -> None:
     """Зберігає аналіз у текстовому файлі."""
+    # Створюємо директорію якщо не існує
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(analysis)
 
