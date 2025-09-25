@@ -251,18 +251,158 @@ def save_frame_image(
         raise VideoShotsError(f"Не вдалося зберегти файл '{output_path}'")
 
 
-def combine_to_pdf(image_paths: Sequence[Path], pdf_path: Path) -> None:
+def combine_to_pdf(image_paths: Sequence[Path], analyses: List[Path], timepoints: List[TimePoint], pdf_path: Path) -> None:
+    """Об'єднує зображення з аналізом в PDF файл."""
     if not image_paths:
         return
-    images = []
-    for idx, path in enumerate(image_paths):
-        img = Image.open(path)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        images.append(img)
+    
+    try:
+        import json
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+        
+        # Створюємо PDF документ
+        doc = SimpleDocTemplate(str(pdf_path), pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+        story = []
+        
+        # Стилі
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1,  # Center
+            textColor=colors.darkblue
+        )
+        
+        frame_style = ParagraphStyle(
+            'FrameTitle',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            textColor=colors.darkblue
+        )
+        
+        analysis_style = ParagraphStyle(
+            'Analysis',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=6,
+            leftIndent=20,
+            textColor=colors.darkgreen
+        )
+        
+        # Заголовок
+        story.append(Paragraph("🎬 AI-Generated Storyboard Analysis", title_style))
+        story.append(Spacer(1, 12))
+        
+        # Додаємо кожен кадр з аналізом
+        for i, (img_path, analysis_path, tp) in enumerate(zip(image_paths, analyses, timepoints), 1):
+            time_label = format_timestamp(tp.seconds, precision='ms')
+            
+            # Заголовок кадру
+            story.append(Paragraph(f"Frame {i} - {time_label}", frame_style))
+            
+            # Зображення
+            try:
+                img = RLImage(str(img_path), width=6*inch, height=4*inch)
+                story.append(img)
+                story.append(Spacer(1, 12))
+            except Exception as e:
+                story.append(Paragraph(f"Error loading image: {e}", styles['Normal']))
+            
+            # Аналіз якщо є
+            if analysis_path and analysis_path.exists():
+                try:
+                    with open(analysis_path, 'r', encoding='utf-8') as f:
+                        analysis_data = json.load(f)
+                    
+                    # Scene Description
+                    scene_desc = analysis_data.get('scene_description', 'No description available')
+                    story.append(Paragraph(f"<b>📝 Scene Description:</b>", analysis_style))
+                    story.append(Paragraph(scene_desc, analysis_style))
+                    story.append(Spacer(1, 6))
+                    
+                    # Visual Elements
+                    if 'visual_elements' in analysis_data:
+                        ve = analysis_data['visual_elements']
+                        story.append(Paragraph(f"<b>👁️ Visual Elements:</b>", analysis_style))
+                        if ve.get('characters'):
+                            story.append(Paragraph(f"Characters: {', '.join(ve['characters'])}", analysis_style))
+                        if ve.get('objects'):
+                            story.append(Paragraph(f"Objects: {', '.join(ve['objects'])}", analysis_style))
+                        if ve.get('background'):
+                            story.append(Paragraph(f"Background: {ve['background']}", analysis_style))
+                        if ve.get('lighting'):
+                            story.append(Paragraph(f"Lighting: {ve['lighting']}", analysis_style))
+                        story.append(Spacer(1, 6))
+                    
+                    # Composition
+                    if 'composition' in analysis_data:
+                        comp = analysis_data['composition']
+                        story.append(Paragraph(f"<b>🎬 Composition:</b>", analysis_style))
+                        if comp.get('shot_type'):
+                            story.append(Paragraph(f"Shot Type: {comp['shot_type']}", analysis_style))
+                        if comp.get('camera_angle'):
+                            story.append(Paragraph(f"Camera Angle: {comp['camera_angle']}", analysis_style))
+                        if comp.get('framing'):
+                            story.append(Paragraph(f"Framing: {comp['framing']}", analysis_style))
+                        story.append(Spacer(1, 6))
+                    
+                    # Storyboard Suitability
+                    if 'storyboard_suitability' in analysis_data:
+                        ss = analysis_data['storyboard_suitability']
+                        score = ss.get('score', 0)
+                        score_color = colors.green if score >= 7 else colors.orange if score >= 4 else colors.red
+                        story.append(Paragraph(f"<b>⭐ Storyboard Suitability: <font color='{score_color}'>{score}/10</font></b>", analysis_style))
+                        if ss.get('reasoning'):
+                            story.append(Paragraph(f"Reasoning: {ss['reasoning']}", analysis_style))
+                        if ss.get('key_moments'):
+                            story.append(Paragraph(f"Key Moments: {', '.join(ss['key_moments'])}", analysis_style))
+                        if ss.get('transition_potential'):
+                            story.append(Paragraph(f"Transition Potential: {ss['transition_potential']}", analysis_style))
+                        story.append(Spacer(1, 6))
+                    
+                    # Production Notes
+                    if 'production_notes' in analysis_data:
+                        pn = analysis_data['production_notes']
+                        story.append(Paragraph(f"<b>🎭 Production Notes:</b>", analysis_style))
+                        if pn.get('emotions'):
+                            story.append(Paragraph(f"Emotions: {', '.join(pn['emotions'])}", analysis_style))
+                        if pn.get('action_level'):
+                            story.append(Paragraph(f"Action Level: {pn['action_level']}", analysis_style))
+                        if pn.get('makeup_visible') is not None:
+                            story.append(Paragraph(f"Makeup Visible: {pn['makeup_visible']}", analysis_style))
+                        if pn.get('technical_quality'):
+                            story.append(Paragraph(f"Technical Quality: {pn['technical_quality']}", analysis_style))
+                    
+                except Exception as e:
+                    story.append(Paragraph(f"Error reading analysis: {e}", styles['Normal']))
+            else:
+                story.append(Paragraph("No analysis available for this frame.", analysis_style))
+            
+            # Розділювач між кадрами (крім останнього)
+            if i < len(image_paths):
+                story.append(PageBreak())
+        
+        # Генеруємо PDF
+        doc.build(story)
+        
+    except ImportError:
+        # Fallback до простого PDF якщо reportlab не встановлено
+        images = []
+        for idx, path in enumerate(image_paths):
+            img = Image.open(path)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            images.append(img)
 
-    head, *tail = images
-    head.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=tail)
+        head, *tail = images
+        head.save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=tail)
 
 
 def create_structured_analysis_from_text(text: str) -> dict:
@@ -1252,7 +1392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Відносний шлях - зберігаємо в exports папці
             pdf_path = output_dir / "exports" / args.pdf
         try:
-            combine_to_pdf(image_paths, pdf_path)
+            combine_to_pdf(image_paths, analysis_paths, timepoints, pdf_path)
             print(f"PDF збережено: {pdf_path}")
         except Exception as exc:  # pylint: disable=broad-except
             print(f"⚠️ Не вдалося створити PDF: {exc}", file=sys.stderr)
