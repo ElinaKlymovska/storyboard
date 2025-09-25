@@ -560,7 +560,7 @@ def create_html_storyboard(
             except:
                 analysis_data = {"scene_description": "Analysis unavailable"}
         
-        # Використовуємо відносний шлях до зображення в output папці
+        # Копіюємо зображення в exports папку для HTML
         screenshot_name = f"frame_{i:03d}_{screenshot.name}"
         screenshot_dest = output_path.parent / screenshot_name
         import shutil
@@ -1085,7 +1085,13 @@ def resolve_output_dir(base_dir: Path, video_path: Path, custom_outdir: str | No
         # Створюємо папку з timestamp для кожної сесії
         timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')
         out_dir = base_dir / f"{base_name}_{timestamp}"
+    
+    # Створюємо основну папку та підпапки
     out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "screenshots").mkdir(exist_ok=True)
+    (out_dir / "analysis").mkdir(exist_ok=True)
+    (out_dir / "exports").mkdir(exist_ok=True)
+    
     return out_dir
 
 
@@ -1219,7 +1225,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         time_tag = format_timestamp_for_name(tp.seconds, precision=actual_precision)
         filename = f"{args.prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}.{args.format}"
-        output_path = output_dir / filename
+        output_path = output_dir / "screenshots" / filename
         save_frame_image(framed, output_path, args.format)
         image_paths.append(output_path)
 
@@ -1229,7 +1235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"🔍 Аналізую кадр {tp.index}/{len(timepoints)}...", end=" ", flush=True)
             analysis_data = analyze_image_with_replicate(output_path, args.analysis_prompt)
             analysis_filename = f"{args.prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}_analysis.json"
-            analysis_path = output_dir / analysis_filename
+            analysis_path = output_dir / "analysis" / analysis_filename
             save_analysis_to_file(analysis_data, analysis_path)
             scene_desc = analysis_data.get('scene_description', 'Analysis unavailable')
             print(f"✅ {scene_desc[:50]}...")
@@ -1243,8 +1249,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Абсолютний шлях
             pdf_path = Path(args.pdf)
         else:
-            # Відносний шлях - зберігаємо в output папці
-            pdf_path = output_dir / args.pdf
+            # Відносний шлях - зберігаємо в exports папці
+            pdf_path = output_dir / "exports" / args.pdf
         try:
             combine_to_pdf(image_paths, pdf_path)
             print(f"PDF збережено: {pdf_path}")
@@ -1258,8 +1264,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Абсолютний шлях
             html_path = Path(args.html)
         else:
-            # Відносний шлях - зберігаємо в output папці
-            html_path = output_dir / args.html
+            # Відносний шлях - зберігаємо в exports папці
+            html_path = output_dir / "exports" / args.html
         create_html_storyboard(
             video_path.stem,
             image_paths,
@@ -1276,8 +1282,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Абсолютний шлях
             table_path = Path(args.editing_table)
         else:
-            # Відносний шлях - зберігаємо в output папці
-            table_path = output_dir / args.editing_table
+            # Відносний шлях - зберігаємо в exports папці
+            table_path = output_dir / "exports" / args.editing_table
         create_editing_table(
             video_path.stem,
             image_paths,
