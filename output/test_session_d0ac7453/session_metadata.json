@@ -1,0 +1,20 @@
+{
+  "session_id": "d0ac7453",
+  "video_name": "test_video",
+  "video_path": "input/videos/test_video.mp4",
+  "start_time": "2025-10-04T00:26:08.214216",
+  "end_time": "2025-10-04T00:26:08.215233",
+  "analysis_type": "test",
+  "config_used": {
+    "test": true
+  },
+  "success": true,
+  "error_message": null,
+  "total_duration": null,
+  "keyframes_count": 0,
+  "audio_segments_count": 0,
+  "output_files": [
+    "reports/test_report.json (Тестовий JSON звіт)",
+    "keyframes/test_frame.jpg (Тестовий ключовий кадр)"
+  ]
+}
