@@ -4,8 +4,9 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import List, Sequence, Tuple
+import os
 
-from ..config import (
+from video_shots.config.config import (
     DEFAULT_FONT_SCALE, 
     DEFAULT_FONT_THICKNESS, 
     DEFAULT_PADDING,
@@ -14,9 +15,9 @@ from ..config import (
     TEXT_COLOR,
     DEFAULT_JPEG_QUALITY
 )
-from ..exceptions import VideoShotsError
-from ..models import TimePoint
-from ..utils import format_timestamp
+from video_shots.core.exceptions import VideoShotsError
+from video_shots.core.models import TimePoint
+from video_shots.utils.time_utils import format_timestamp
 
 
 def apply_rotation(frame: np.ndarray, rotation: int) -> np.ndarray:
@@ -130,7 +131,7 @@ def process_video_frames(
             label_lines = [f"Time {time_label}"]
             framed = render_label_panel(frame, label_lines)
 
-            from ..utils import format_timestamp_for_name
+            from video_shots.utils.time_utils import format_timestamp_for_name
             time_tag = format_timestamp_for_name(tp.seconds, precision=time_precision)
             filename = f"{prefix}_{tp.index:05d}_f{tp.frame_index:05d}_t{time_tag}.{image_format}"
             output_path = output_dir / "screenshots" / filename
@@ -141,3 +142,93 @@ def process_video_frames(
         cap.release()
 
     return image_paths, duplicates
+
+
+def split_video_into_segments(
+    video_path: Path,
+    output_dir: Path,
+    segment_duration: float = 5.0,
+    prefix: str = "segment"
+) -> List[Path]:
+    """Split video into segments of specified duration.
+    
+    Args:
+        video_path: Path to input video file
+        output_dir: Directory to save video segments
+        segment_duration: Duration of each segment in seconds (default: 5.0)
+        prefix: Prefix for output segment files
+        
+    Returns:
+        List of paths to created video segments
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise VideoShotsError(f"Failed to open video '{video_path}'")
+    
+    try:
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps
+        
+        # Calculate frames per segment
+        frames_per_segment = int(fps * segment_duration)
+        
+        # Create output directory if it doesn't exist
+        segments_dir = output_dir / "segments"
+        segments_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Get video codec and properties for output
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        segment_paths = []
+        segment_num = 0
+        current_frame = 0
+        
+        print(f"Splitting video into {segment_duration}s segments...")
+        print(f"Total duration: {duration:.2f}s, FPS: {fps:.2f}")
+        
+        while current_frame < total_frames:
+            # Calculate end frame for this segment
+            end_frame = min(current_frame + frames_per_segment, total_frames)
+            
+            # Create output filename
+            segment_filename = f"{prefix}_{segment_num:03d}_{current_frame}_{end_frame}.mp4"
+            segment_path = segments_dir / segment_filename
+            
+            # Initialize video writer for this segment
+            out = cv2.VideoWriter(str(segment_path), fourcc, fps, (frame_width, frame_height))
+            
+            # Set position and read frames for this segment
+            cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
+            
+            frames_written = 0
+            for frame_idx in range(current_frame, end_frame):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                out.write(frame)
+                frames_written += 1
+            
+            out.release()
+            
+            if frames_written > 0:
+                segment_paths.append(segment_path)
+                start_time = current_frame / fps
+                end_time = (current_frame + frames_written) / fps
+                print(f"Created segment {segment_num}: {segment_filename} ({start_time:.1f}s - {end_time:.1f}s)")
+                segment_num += 1
+            else:
+                # Remove empty file
+                if segment_path.exists():
+                    os.remove(segment_path)
+            
+            current_frame = end_frame
+            
+    finally:
+        cap.release()
+    
+    print(f"Successfully created {len(segment_paths)} segments")
+    return segment_paths

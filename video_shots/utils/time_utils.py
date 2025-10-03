@@ -3,9 +3,9 @@
 import math
 from typing import List
 
-from ..config import CYRILLIC_S_LOWER, CYRILLIC_S_UPPER, DEFAULT_FPS_FOR_TIMECODE
-from ..exceptions import VideoShotsError
-from ..models import TimePoint
+from video_shots.config.config import CYRILLIC_S_LOWER, CYRILLIC_S_UPPER, DEFAULT_FPS_FOR_TIMECODE
+from video_shots.core.exceptions import VideoShotsError
+from video_shots.core.models import TimePoint
 
 
 def parse_time_value(value: str, *, allow_zero: bool = False) -> float:
@@ -159,16 +159,21 @@ def parse_timecode_to_seconds(timecode: str) -> float:
     """Convert timecode HH:MM:SS:FF to seconds."""
     try:
         parts = timecode.split(':')
+        if len(parts) != 4:
+            raise VideoShotsError(f"Invalid timecode format '{timecode}'. Expected HH:MM:SS:FF")
+        
         hours = int(parts[0])
         minutes = int(parts[1])
         seconds = int(parts[2])
         frames = int(parts[3])
         
-        # Assume 30 FPS
+        if minutes >= 60 or seconds >= 60 or frames < 0:
+            raise VideoShotsError(f"Invalid timecode values in '{timecode}'")
+        
         total_seconds = hours * 3600 + minutes * 60 + seconds + frames / DEFAULT_FPS_FOR_TIMECODE
         return total_seconds
-    except:
-        return 0.0
+    except ValueError as exc:
+        raise VideoShotsError(f"Failed to parse timecode '{timecode}': {exc}") from exc
 
 
 def estimate_total_frames(duration: float, interval: float) -> int:

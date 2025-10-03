@@ -2,8 +2,8 @@
 
 from pathlib import Path
 from typing import List
-from .models import TimePoint
-from .utils import format_timestamp
+from video_shots.core.models import TimePoint
+from video_shots.utils.time_utils import format_timestamp
 
 def create_html_storyboard(video_name: str, screenshots: List[Path], timepoints: List[TimePoint], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)

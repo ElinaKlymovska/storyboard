@@ -1,61 +1,77 @@
+# 🔒 SECURITY: NEVER COMMIT THESE FILES WITH API KEYS
+# Add these lines to your .gitignore file
+
+# Environment variables with API keys
+.env
+.env.*
+!.env.example
+!.env.minimal
+
+# API keys and tokens
+*.key
+*.token
+api_keys.txt
+secrets.txt
+config.json
+
+# Backup files that might contain keys
+*.backup
+*.bak
+.env.backup
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.env
-.venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
 # Project specific
-output/
-*.log
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+quota_usage.json
+api_stats.json
+usage_logs/
+cache/
+temp/
+logs/
+
+# Don't commit test results with potentially sensitive data
+test_results/
+api_responses/
+debug_output/
+
+# Video files (usually large)
+input/videos/*.mp4
+input/videos/*.avi
+input/videos/*.mov
+output/*/screenshots/*
+output/*/analysis_frames/*
 
 # Temporary files
+tmp/
+temp/
 *.tmp
 *.temp
-temp/
-tmp/
+
+# Never commit these patterns anywhere in the repository
+**/.env
+**/secrets.json
+**/api_keys.*
+**/config/production.json

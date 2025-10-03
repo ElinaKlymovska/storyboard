@@ -10,8 +10,8 @@ from typing import Dict
 
 import replicate
 
-from ..config import DEFAULT_ANALYSIS_PROMPT, REPLICATE_MODEL, REPLICATE_MAX_TOKENS, REPLICATE_TEMPERATURE
-from ..exceptions import VideoShotsError
+from video_shots.config.config import DEFAULT_ANALYSIS_PROMPT, REPLICATE_MODEL, REPLICATE_MAX_TOKENS, REPLICATE_TEMPERATURE
+from video_shots.core.exceptions import VideoShotsError
 
 
 def create_structured_analysis_from_text(text: str) -> Dict:
@@ -91,15 +91,30 @@ def analyze_image_with_replicate(image_path: Path, prompt: str = None) -> Dict:
     if prompt is None:
         prompt = DEFAULT_ANALYSIS_PROMPT
     
+    if not image_path.exists():
+        return _create_error_response(f"Image file not found: {image_path}")
+    
     try:
-        # Read image and convert to base64
+        image_data = _encode_image_to_base64(image_path)
+        response = _call_replicate_api(image_data, prompt)
+        return _parse_response(response)
+    except Exception as exc:
+        return _create_error_response(f"Analysis failed: {exc}")
+
+
+def _encode_image_to_base64(image_path: Path) -> str:
+    """Encode image file to base64."""
+    try:
         with open(image_path, "rb") as image_file:
             image_data = base64.b64encode(image_file.read()).decode('utf-8')
-        
-        # Create data URL
-        image_url = f"data:image/png;base64,{image_data}"
-        
-        # Use Replicate API with new model
+        return f"data:image/png;base64,{image_data}"
+    except IOError as exc:
+        raise VideoShotsError(f"Failed to read image file: {exc}")
+
+
+def _call_replicate_api(image_url: str, prompt: str) -> str:
+    """Call Replicate API for image analysis."""
+    try:
         output = replicate.run(
             REPLICATE_MODEL,
             input={
@@ -110,32 +125,36 @@ def analyze_image_with_replicate(image_path: Path, prompt: str = None) -> Dict:
             }
         )
         
-        # Replicate returns generator, need to collect result
+        # Handle generator or string response
         if hasattr(output, '__iter__') and not isinstance(output, str):
-            result = ''.join(str(item) for item in output)
-        else:
-            result = str(output)
-        
-        # Try to parse JSON, if fails - create structured analysis
-        try:
-            # Try to find JSON in response
-            json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                parsed_result = json.loads(json_str)
-                return parsed_result
-            else:
-                # If JSON not found, create structured analysis from text
-                return create_structured_analysis_from_text(result.strip())
-        except json.JSONDecodeError:
-            return create_structured_analysis_from_text(result.strip())
-            
+            return ''.join(str(item) for item in output)
+        return str(output)
     except Exception as exc:
-        return {
-            "error": f"Analysis failed: {exc}",
-            "scene_description": "Analysis unavailable",
-            "storyboard_suitability": {"score": 0, "reasoning": "Analysis failed"}
-        }
+        raise VideoShotsError(f"Replicate API call failed: {exc}")
+
+
+def _parse_response(response: str) -> Dict:
+    """Parse API response, trying JSON first, then structured text analysis."""
+    try:
+        # Try to find and parse JSON in response
+        json_match = re.search(r'\{.*\}', response.strip(), re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+    
+    # If JSON parsing fails, create structured analysis from text
+    return create_structured_analysis_from_text(response.strip())
+
+
+def _create_error_response(error_message: str) -> Dict:
+    """Create standardized error response."""
+    return {
+        "error": error_message,
+        "scene_description": "Analysis unavailable",
+        "storyboard_suitability": {"score": 0, "reasoning": "Analysis failed"}
+    }
 
 
 def save_analysis_to_file(analysis: Dict, output_path: Path) -> None:

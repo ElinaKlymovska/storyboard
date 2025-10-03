@@ -1,0 +1,52 @@
+{
+  "audio": {
+    "segment_duration": 1.0,
+    "speech_recognition_language": "en-US",
+    "silence_threshold_db": -40.0,
+    "enable_transcription": true,
+    "enable_level_analysis": true,
+    "fallback_languages": [
+      "uk-UA",
+      "auto"
+    ]
+  },
+  "video": {
+    "keyframe_interval": 2.0,
+    "keyframe_selection_mode": "event_driven",
+    "target_keyframes_per_minute": 30,
+    "max_keyframes": 100,
+    "frame_analysis_enabled": true
+  },
+  "event_detection": {
+    "change_sensitivity": {
+      "facial": 0.15,
+      "pose": 0.25,
+      "scene": 0.4,
+      "motion": 0.3,
+      "visual_quality": 0.35
+    },
+    "similarity_threshold": 0.8,
+    "max_frames_per_second": 5,
+    "filter_strategy": "keep_first_discard_rest",
+    "min_significance_threshold": 0.3,
+    "min_confidence_threshold": 0.5
+  },
+  "output": {
+    "base_output_dir": "output",
+    "generate_html_report": true,
+    "generate_json_report": true,
+    "generate_text_summary": true,
+    "save_keyframes": true,
+    "save_audio_files": true,
+    "compress_images": false,
+    "image_quality": 95
+  },
+  "external_apis": {
+    "replicate_model": "yorickvp/llava-13b:80537f9eead1a5bfa72d5ac6ea6414379be41d4d4f6679fd776e9535d1eb58bb",
+    "video_analysis_model": "lucataco/videollama3-7b:34a1f45f7068f7121a5b47c91f2d7e06c298850767f76f96660450a0a3bd5bbe",
+    "replicate_max_tokens": 500,
+    "replicate_temperature": 0.3,
+    "use_external_apis": false
+  },
+  "log_level": "INFO"
+}

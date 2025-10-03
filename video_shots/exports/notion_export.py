@@ -12,10 +12,10 @@ except ImportError:
     NOTION_AVAILABLE = False
     Client = None
 
-from ..models import TimePoint
-from ..utils import format_timestamp
-from ..utils.github_utils import create_storyboard_gist, get_gist_instructions
-from ..utils.image_hosting import (
+from video_shots.core.models import TimePoint
+from video_shots.utils.time_utils import format_timestamp
+from video_shots.utils.github_utils import create_storyboard_gist, get_gist_instructions
+from video_shots.utils.image_hosting import (
     upload_to_imgur, 
     upload_to_imgbb, 
     upload_to_google_drive,

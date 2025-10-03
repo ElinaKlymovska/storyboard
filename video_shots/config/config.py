@@ -59,10 +59,55 @@ REPLICATE_TEMPERATURE = 0.3
 VIDEO_ANALYSIS_MODEL = "lucataco/videollama3-7b:34a1f45f7068f7121a5b47c91f2d7e06c298850767f76f96660450a0a3bd5bbe"
 VIDEO_ANALYSIS_INTERVAL = 0.5
 
+# Event-driven keyframe detection settings
+MICRO_CHANGE_DETECTION = True
+KEYFRAME_SELECTION_MODE = "event_driven"  # "interval_based" or "event_driven"
+
+# Micro-change detection sensitivity settings
+CHANGE_SENSITIVITY = {
+    'facial': 0.15,        # Very sensitive for facial changes (eye blinks, expressions)
+    'pose': 0.25,          # Medium sensitivity for pose changes
+    'scene': 0.4,          # Lower sensitivity for major scene changes
+    'motion': 0.3,         # Motion change sensitivity
+    'visual_quality': 0.35 # Visual quality change sensitivity
+}
+
+# Frame similarity and filtering settings
+SIMILARITY_THRESHOLD = 0.80     # Frames more similar than this are considered "same event"
+MAX_FRAMES_PER_SECOND = 5       # Performance limit for event detection (reduced for speed)
+MIN_SEQUENCE_LENGTH = 3         # Minimum frames to form a similar sequence
+MAX_SEQUENCE_DURATION = 2.0     # Maximum duration for a single sequence (seconds)
+
+# Intelligent filtering strategy
+FILTER_STRATEGY = "keep_first_discard_rest"  # Options: "keep_first_discard_rest", "keep_best_in_sequence", "adaptive_sampling", "quality_based"
+
+# Event classification weights
+EVENT_CLASSIFICATION_WEIGHTS = {
+    'facial_weight': 0.4,      # Weight for facial change importance
+    'motion_weight': 0.3,      # Weight for motion change importance  
+    'scene_weight': 0.2,       # Weight for scene change importance
+    'temporal_weight': 0.1     # Weight for temporal distribution
+}
+
+# Event filtering thresholds
+MIN_SIGNIFICANCE_THRESHOLD = 0.3    # Minimum significance score to keep event
+MIN_CONFIDENCE_THRESHOLD = 0.5      # Minimum confidence for change detection
+
+# Event priority settings - which priorities to keep
+KEEP_EVENT_PRIORITIES = ["critical", "high", "medium"]  # Options: "critical", "high", "medium", "low"
+
+# Event category settings - which categories to prioritize
+PRIORITIZE_EVENT_CATEGORIES = [
+    "facial_expression",       # Eye blinks, smiles, etc.
+    "scene_transition",        # Major scene changes
+    "body_movement",           # Pose changes, gestures
+    "lighting_change"          # Significant lighting changes
+]
+
 # Video processing settings
 MAX_ITERATIONS = 10_000_000
-MAX_FRAMES_WARNING = 5000
-DEFAULT_FPS_FOR_TIMECODE = 30.0
+MAX_FRAMES_WARNING = 1000
+DEFAULT_FPS_FOR_TIMECODE = 25.0
 
 # Image settings
 DEFAULT_IMAGE_FORMAT = "png"
@@ -79,10 +124,6 @@ TEXT_COLOR = (255, 255, 255)
 # Time constants
 CYRILLIC_S_LOWER = 'с'
 CYRILLIC_S_UPPER = 'С'
-DEFAULT_FPS_FOR_TIMECODE = 25.0
-
-# Maximum frames warning
-MAX_FRAMES_WARNING = 1000
 
 # Video formats
 SUPPORTED_VIDEO_FORMATS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv']

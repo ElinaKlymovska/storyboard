@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Dict
 
-from .time_utils import parse_timecode_to_seconds
+from video_shots.utils.time_utils import parse_timecode_to_seconds
 
 
 def parse_audio_transcript(audio_file_path: Path) -> Dict:

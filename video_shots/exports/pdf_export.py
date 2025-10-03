@@ -4,7 +4,7 @@ from pathlib import Path
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
-from .utils import format_timestamp
+from video_shots.utils.time_utils import format_timestamp
 
 def combine_to_pdf(video_name, screenshots, timepoints, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
