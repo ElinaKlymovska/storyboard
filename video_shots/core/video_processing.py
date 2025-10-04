@@ -3,8 +3,14 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Sequence, Tuple, Optional
 import os
+import time
+try:
+    from moviepy.editor import VideoFileClip
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    MOVIEPY_AVAILABLE = False
 
 from video_shots.config.config import (
     DEFAULT_FONT_SCALE, 
@@ -231,4 +237,114 @@ def split_video_into_segments(
         cap.release()
     
     print(f"Successfully created {len(segment_paths)} segments")
+    return segment_paths
+
+
+def split_video_with_audio(
+    video_path: Path,
+    output_dir: Path,
+    segment_duration: float = 0.5,
+    prefix: str = "segment_audio",
+    max_segments: Optional[int] = None
+) -> List[Path]:
+    """Split video into segments with audio preservation using MoviePy.
+    
+    Args:
+        video_path: Path to input video file
+        output_dir: Directory to save video segments  
+        segment_duration: Duration of each segment in seconds (default: 0.5)
+        prefix: Prefix for output segment files
+        
+    Returns:
+        List of paths to created video segments with audio
+        
+    Raises:
+        VideoShotsError: If MoviePy is not available or video processing fails
+    """
+    if not MOVIEPY_AVAILABLE:
+        raise VideoShotsError(
+            "MoviePy is required for video segmentation with audio. "
+            "Please install it with: pip install moviepy"
+        )
+    
+    if not video_path.exists():
+        raise VideoShotsError(f"Video file not found: {video_path}")
+    
+    # Create output directory
+    segments_dir = output_dir / "segments"
+    segments_dir.mkdir(parents=True, exist_ok=True)
+    
+    segment_paths = []
+    
+    try:
+        print(f"Loading video: {video_path}")
+        # Load video with audio
+        video = VideoFileClip(str(video_path))
+        
+        if video.duration is None:
+            raise VideoShotsError(f"Could not determine video duration for {video_path}")
+        
+        total_duration = video.duration
+        print(f"Video duration: {total_duration:.2f}s")
+        print(f"Creating {segment_duration}s segments with audio...")
+        
+        # Calculate number of segments
+        num_segments = int(total_duration / segment_duration) + (1 if total_duration % segment_duration != 0 else 0)
+        
+        # Apply segment limit if specified
+        if max_segments is not None:
+            actual_segments = min(num_segments, max_segments)
+            print(f"Processing first {actual_segments} of {num_segments} total segments (limited by max_segments={max_segments})...")
+        else:
+            actual_segments = num_segments
+            print(f"Processing all {actual_segments} segments...")
+        
+        for i in range(actual_segments):
+            start_time = i * segment_duration
+            end_time = min((i + 1) * segment_duration, total_duration)
+            
+            # Skip if segment would be too short (< 0.1 seconds)
+            if end_time - start_time < 0.1:
+                continue
+            
+            # Create segment filename with timestamps
+            segment_filename = f"{prefix}_{i:04d}_{start_time:.3f}s-{end_time:.3f}s.mp4"
+            segment_path = segments_dir / segment_filename
+            
+            # Extract segment with audio
+            segment_clip = video.subclip(start_time, end_time)
+            
+            # Write segment to file
+            try:
+                # Try with minimal parameters first
+                segment_clip.write_videofile(
+                    str(segment_path),
+                    verbose=False
+                )
+            except Exception as write_error:
+                print(f"Warning: write_videofile failed: {write_error}")
+                # Try alternative approach without specific codecs
+                try:
+                    segment_clip.write_videofile(
+                        str(segment_path)
+                    )
+                except Exception as fallback_error:
+                    print(f"Error: All write attempts failed: {fallback_error}")
+                    continue  # Skip this segment and continue with next
+            
+            segment_clip.close()
+            segment_paths.append(segment_path)
+            
+            print(f"Created segment {i+1}/{actual_segments}: {segment_filename} ({start_time:.3f}s - {end_time:.3f}s)")
+            
+            # Small delay between segments to prevent overwhelming the system
+            if i < actual_segments - 1:  # No delay after the last segment
+                time.sleep(0.1)
+        
+        video.close()
+        
+    except Exception as e:
+        raise VideoShotsError(f"Failed to split video with audio: {str(e)}")
+    
+    print(f"Successfully created {len(segment_paths)} segments with audio")
     return segment_paths

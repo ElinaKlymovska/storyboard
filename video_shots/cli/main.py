@@ -29,6 +29,12 @@ Examples:
   # Analyze with custom configuration
   python -m video_shots.cli.main analyze input/videos/video.mp4 -c config/custom.json
   
+  # Split video into 0.5 second segments with audio
+  python -m video_shots.cli.main segment input/videos/video.mp4
+  
+  # Split video into 2 second segments with custom output
+  python -m video_shots.cli.main segment input/videos/video.mp4 -d 2.0 -o output/segments
+  
   # Create default configuration file
   python -m video_shots.cli.main create-config -o config/default.json
   
@@ -160,6 +166,45 @@ Examples:
     
     # Clean up sessions
     cleanup_parser = sessions_subparsers.add_parser("cleanup", help="Clean up temp files in all sessions")
+    
+    # Segment command
+    segment_parser = subparsers.add_parser(
+        "segment",
+        help="Split video into segments with audio",
+        description="Split a video file into smaller segments while preserving audio."
+    )
+    
+    segment_parser.add_argument(
+        "video_path",
+        type=str,
+        help="Path to the video file to segment"
+    )
+    
+    segment_parser.add_argument(
+        "--output", "-o",
+        type=str,
+        help="Output directory for segments (default: auto-generated based on video name)"
+    )
+    
+    segment_parser.add_argument(
+        "--duration", "-d",
+        type=float,
+        default=0.5,
+        help="Duration of each segment in seconds (default: 0.5)"
+    )
+    
+    segment_parser.add_argument(
+        "--prefix", "-p",
+        type=str,
+        default="segment",
+        help="Prefix for segment filenames (default: segment)"
+    )
+    
+    segment_parser.add_argument(
+        "--max-segments", "-m",
+        type=int,
+        help="Maximum number of segments to create (default: unlimited)"
+    )
     
     return parser
 
@@ -432,6 +477,68 @@ def handle_sessions_command(args) -> int:
     return 0
 
 
+def handle_segment_command(args) -> int:
+    """Handle the segment command."""
+    from video_shots.logging.logger import get_logger
+    from video_shots.core.video_processing import split_video_with_audio
+    from video_shots.utils.output_manager import get_output_manager
+    
+    logger = get_logger()
+    video_path = Path(args.video_path)
+    
+    if not video_path.exists():
+        logger.error(f"Video file not found: {video_path}")
+        return 1
+    
+    # Determine output directory
+    if args.output:
+        output_dir = Path(args.output)
+    else:
+        # Create output directory based on video name
+        video_stem = video_path.stem
+        output_dir = Path("output") / f"{video_stem}_segments"
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        logger.info(f"🎬 Starting video segmentation...")
+        logger.info(f"📽️ Input: {video_path}")
+        logger.info(f"⏱️ Segment duration: {args.duration} seconds")
+        logger.info(f"📁 Output directory: {output_dir}")
+        
+        # Split video with audio
+        segment_paths = split_video_with_audio(
+            video_path=video_path,
+            output_dir=output_dir,
+            segment_duration=args.duration,
+            prefix=args.prefix,
+            max_segments=args.max_segments
+        )
+        
+        if segment_paths:
+            logger.info(f"✅ Segmentation completed successfully!")
+            logger.info(f"📊 Created {len(segment_paths)} segments")
+            logger.info(f"📁 Segments saved to: {output_dir / 'segments'}")
+            
+            # Show first few segments as examples
+            logger.info("📄 Generated segments:")
+            for i, path in enumerate(segment_paths[:5]):
+                logger.info(f"   {i+1}. {path.name}")
+            
+            if len(segment_paths) > 5:
+                logger.info(f"   ... and {len(segment_paths) - 5} more segments")
+                
+        else:
+            logger.warning("⚠️ No segments were created")
+            return 1
+        
+        return 0
+        
+    except Exception as e:
+        logger.error(f"❌ Segmentation failed: {e}")
+        return 1
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = create_parser()
@@ -461,6 +568,8 @@ def main() -> int:
         return handle_info_command(args)
     elif args.command == "sessions":
         return handle_sessions_command(args)
+    elif args.command == "segment":
+        return handle_segment_command(args)
     else:
         parser.print_help()
         return 1
